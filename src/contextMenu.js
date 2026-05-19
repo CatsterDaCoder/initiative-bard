@@ -8,7 +8,7 @@ export function setupContextMenu(EXT_ID) {
     icons: [
       {
         // Show "Add to Initiative" when the token has NO metadata yet
-        icon: "/add.svg",
+        icon: "/initiative-bard/add.svg",
         label: "Add to Initiative",
         filter: {
           every: [
@@ -19,7 +19,7 @@ export function setupContextMenu(EXT_ID) {
       },
       {
         // Show "Remove from Initiative" when the token already has metadata
-        icon: "/remove.svg",
+        icon: "/initiative-bard/remove.svg",
         label: "Remove from Initiative",
         filter: {
           every: [
@@ -64,7 +64,7 @@ export function setupContextMenu(EXT_ID) {
     id: `${EXT_ID}/theme-song-menu`,
     icons: [
       {
-        icon: "/music.svg",
+        icon: "/initiative-bard/music.svg",
         label: "Set Theme Song",
         filter: {
           every: [
