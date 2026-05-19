@@ -3,22 +3,10 @@ import { playThemeSong, stopThemeSong, hasVideoId } from "./youtube.js";
 
 const ROOM_KEY = "com.initiativebard/state";
 
-/**
- * Shared state stored in OBR room metadata:
- * {
- *   currentIndex: number   // index (into sorted list) of whose turn it is
- *   round: number          // round counter
- * }
- *
- * Per-token data is stored in token item metadata (initiative, themeSong).
- */
-
 let currentState = { currentIndex: 0, round: 1 };
-let allItems = []; // sorted initiative list
+let allItems = [];
 let currentSongUrl = "";
 let songModalTargetId = null;
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 function metaKey(EXT_ID) {
   return `${EXT_ID}/metadata`;
@@ -30,48 +18,40 @@ function getInitiativeItems(items, META_KEY) {
     .sort((a, b) => {
       const aVal = Number(a.metadata[META_KEY]?.initiative ?? 0);
       const bVal = Number(b.metadata[META_KEY]?.initiative ?? 0);
-      return bVal - aVal; // descending
+      return bVal - aVal;
     });
 }
 
-async function loadState(EXT_ID) {
-  const meta = await OBR.room.getMetadata();
-  const state = meta[ROOM_KEY];
-  if (state) currentState = state;
+async function loadState() {
+  try {
+    const meta = await OBR.room.getMetadata();
+    const state = meta[ROOM_KEY];
+    if (state) currentState = state;
+  } catch (e) {}
 }
 
 async function saveState() {
-  await OBR.room.setMetadata({ [ROOM_KEY]: currentState });
+  try {
+    await OBR.room.setMetadata({ [ROOM_KEY]: currentState });
+  } catch (e) {}
 }
 
-// ─── Token highlight (OBR scene selection + outline) ──────────────────────
-
-let lastHighlightedIds = [];
+let lastHighlightedId = null;
 
 async function highlightToken(item) {
-  // Clear previous
-  if (lastHighlightedIds.length > 0) {
-    await OBR.scene.items.updateItems(lastHighlightedIds, (items) => {
-      for (const i of items) {
-        i.outlined = false;
-      }
-    });
-  }
-
-  if (!item) {
-    lastHighlightedIds = [];
-    return;
-  }
-
-  await OBR.scene.items.updateItems([item], (items) => {
-    for (const i of items) {
-      i.outlined = true;
+  try {
+    if (lastHighlightedId) {
+      await OBR.scene.items.updateItems([lastHighlightedId], (items) => {
+        for (const i of items) i.outlined = false;
+      });
     }
-  });
-  lastHighlightedIds = [item];
+    if (!item) { lastHighlightedId = null; return; }
+    await OBR.scene.items.updateItems([item.id], (items) => {
+      for (const i of items) i.outlined = true;
+    });
+    lastHighlightedId = item.id;
+  } catch (e) {}
 }
-
-// ─── Music ────────────────────────────────────────────────────────────────
 
 function handleMusic(activeItem, META_KEY) {
   const song = activeItem?.metadata[META_KEY]?.themeSong ?? "";
@@ -86,8 +66,6 @@ function handleMusic(activeItem, META_KEY) {
   }
 }
 
-// ─── Render ───────────────────────────────────────────────────────────────
-
 export async function renderTracker(EXT_ID) {
   const META_KEY = metaKey(EXT_ID);
 
@@ -101,8 +79,6 @@ export async function renderTracker(EXT_ID) {
       </div>
     </div>
     <button id="next-turn-btn" disabled>⚔️ Next Turn</button>
-
-    <!-- Song modal -->
     <div id="song-modal-overlay">
       <div id="song-modal">
         <h2>🎵 Theme Song</h2>
@@ -117,22 +93,38 @@ export async function renderTracker(EXT_ID) {
     </div>
   `;
 
-  await loadState(EXT_ID);
+  await loadState();
 
-  // Subscribe to scene item changes
-  OBR.scene.items.onChange(async (items) => {
+  async function setupSceneListeners() {
+    const isReady = await OBR.scene.isReady();
+    if (!isReady) return;
+
+    const items = await OBR.scene.items.getItems((item) => item.layer === "CHARACTER");
     allItems = getInitiativeItems(items, META_KEY);
-
-    // Guard currentIndex bounds
-    if (currentState.currentIndex >= allItems.length && allItems.length > 0) {
-      currentState.currentIndex = 0;
-    }
-
     renderList(EXT_ID, META_KEY);
     applyActiveEffects(META_KEY);
+
+    OBR.scene.items.onChange(async (items) => {
+      const characterItems = items.filter((item) => item.layer === "CHARACTER");
+      allItems = getInitiativeItems(characterItems, META_KEY);
+      if (currentState.currentIndex >= allItems.length && allItems.length > 0) {
+        currentState.currentIndex = 0;
+      }
+      renderList(EXT_ID, META_KEY);
+      applyActiveEffects(META_KEY);
+    });
+  }
+
+  OBR.scene.onReadyChange(async (ready) => {
+    if (ready) await setupSceneListeners();
+    else {
+      allItems = [];
+      renderList(EXT_ID, META_KEY);
+    }
   });
 
-  // Subscribe to room metadata (so turn changes from others sync)
+  await setupSceneListeners();
+
   OBR.room.onMetadataChange((meta) => {
     const state = meta[ROOM_KEY];
     if (state) {
@@ -142,13 +134,6 @@ export async function renderTracker(EXT_ID) {
     }
   });
 
-  // Initial load
-  const items = await OBR.scene.items.getAll();
-  allItems = getInitiativeItems(items, META_KEY);
-  renderList(EXT_ID, META_KEY);
-  applyActiveEffects(META_KEY);
-
-  // Next Turn button
   document.getElementById("next-turn-btn").addEventListener("click", async () => {
     if (allItems.length === 0) return;
     currentState.currentIndex = (currentState.currentIndex + 1) % allItems.length;
@@ -158,31 +143,25 @@ export async function renderTracker(EXT_ID) {
     applyActiveEffects(META_KEY);
   });
 
-  // Song modal wiring
   document.getElementById("song-cancel-btn").addEventListener("click", closeSongModal);
   document.getElementById("song-modal-overlay").addEventListener("click", (e) => {
     if (e.target === document.getElementById("song-modal-overlay")) closeSongModal();
   });
-
   document.getElementById("song-save-btn").addEventListener("click", async () => {
     const url = document.getElementById("song-url-input").value.trim();
-    await saveSong(url, EXT_ID, META_KEY);
+    await saveSong(url, META_KEY);
     closeSongModal();
   });
-
   document.getElementById("song-clear-btn").addEventListener("click", async () => {
-    await saveSong("", EXT_ID, META_KEY);
+    await saveSong("", META_KEY);
     closeSongModal();
   });
 }
-
-// ─── List Render ──────────────────────────────────────────────────────────
 
 function renderList(EXT_ID, META_KEY) {
   const list = document.getElementById("initiative-list");
   const nextBtn = document.getElementById("next-turn-btn");
   const roundCounter = document.getElementById("round-counter");
-
   if (!list) return;
 
   roundCounter.textContent = `Round ${currentState.round}`;
@@ -196,7 +175,6 @@ function renderList(EXT_ID, META_KEY) {
   }
 
   nextBtn.disabled = false;
-
   list.innerHTML = "";
 
   allItems.forEach((item, index) => {
@@ -211,35 +189,22 @@ function renderList(EXT_ID, META_KEY) {
     row.innerHTML = `
       <div class="turn-indicator"></div>
       <span class="token-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-      <input
-        class="init-input"
-        type="number"
-        value="${Number(initiative)}"
-        min="-99"
-        max="99"
-        title="Initiative score"
-      />
-      <button class="song-btn ${hasSong ? "has-song" : ""}" title="${hasSong ? "Edit theme song" : "Add theme song"}" data-id="${item.id}">
+      <input class="init-input" type="number" value="${Number(initiative)}" min="-99" max="99" />
+      <button class="song-btn ${hasSong ? "has-song" : ""}" data-id="${item.id}">
         ${hasSong ? "🎵" : "🎶"}
       </button>
     `;
 
-    // Initiative input: update item metadata on change (syncs to all players via OBR)
-    const input = row.querySelector(".init-input");
-    input.addEventListener("change", async (e) => {
+    row.querySelector(".init-input").addEventListener("change", async (e) => {
       const val = parseInt(e.target.value, 10) || 0;
-      await OBR.scene.items.updateItems([item], (items) => {
+      await OBR.scene.items.updateItems([item.id], (items) => {
         for (const i of items) {
-          if (i.metadata[META_KEY]) {
-            i.metadata[META_KEY].initiative = val;
-          }
+          if (i.metadata[META_KEY]) i.metadata[META_KEY].initiative = val;
         }
       });
     });
 
-    // Song button
-    const songBtn = row.querySelector(".song-btn");
-    songBtn.addEventListener("click", () => {
+    row.querySelector(".song-btn").addEventListener("click", () => {
       openSongModal(item.id, itemMeta.themeSong ?? "");
     });
 
@@ -247,14 +212,11 @@ function renderList(EXT_ID, META_KEY) {
   });
 }
 
-// ─── Active Effects ───────────────────────────────────────────────────────
-
 async function applyActiveEffects(META_KEY) {
   const activeItem = allItems[currentState.currentIndex] ?? null;
   await highlightToken(activeItem);
   handleMusic(activeItem, META_KEY);
 
-  // Now-playing indicator
   const nowPlaying = document.getElementById("now-playing");
   if (!nowPlaying) return;
   const song = activeItem?.metadata[META_KEY]?.themeSong ?? "";
@@ -265,8 +227,6 @@ async function applyActiveEffects(META_KEY) {
     nowPlaying.classList.add("hidden");
   }
 }
-
-// ─── Song Modal ───────────────────────────────────────────────────────────
 
 function openSongModal(itemId, currentUrl) {
   songModalTargetId = itemId;
@@ -280,34 +240,21 @@ function closeSongModal() {
   songModalTargetId = null;
 }
 
-async function saveSong(url, EXT_ID, META_KEY) {
+async function saveSong(url, META_KEY) {
   if (!songModalTargetId) return;
   const id = songModalTargetId;
-
-  const items = await OBR.scene.items.getAll();
-  const target = items.find((i) => i.id === id);
-  if (!target) return;
-
-  await OBR.scene.items.updateItems([target], (items) => {
-    for (const i of items) {
-      if (i.metadata[META_KEY]) {
-        i.metadata[META_KEY].themeSong = url;
+  try {
+    await OBR.scene.items.updateItems([id], (items) => {
+      for (const i of items) {
+        if (i.metadata[META_KEY]) i.metadata[META_KEY].themeSong = url;
       }
-    }
-  });
-
-  OBR.notification.show(
-    url ? `🎵 Theme song saved!` : `Theme song cleared.`,
-    "SUCCESS"
-  );
+    });
+    OBR.notification.show(url ? `🎵 Theme song saved!` : `Theme song cleared.`, "SUCCESS");
+  } catch (e) {}
 }
-
-// ─── Util ─────────────────────────────────────────────────────────────────
 
 function escapeHtml(str) {
   return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
