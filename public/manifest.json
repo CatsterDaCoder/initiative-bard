@@ -1,0 +1,16 @@
+{
+  "author": "Initiative Bard",
+  "name": "Initiative Bard",
+  "description": "Initiative tracker with per-token theme songs powered by YouTube",
+  "version": "1.0.0",
+  "permissions": ["ROOM"],
+  "action": {
+    "title": "Initiative Bard",
+    "icon": "/icon.svg",
+    "popover": {
+      "url": "/",
+      "height": 500,
+      "width": 300
+    }
+  }
+}
