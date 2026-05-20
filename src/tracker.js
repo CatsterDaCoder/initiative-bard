@@ -1,5 +1,5 @@
 import OBR from "@owlbear-rodeo/sdk";
-import { playThemeSong, stopThemeSong, hasVideoId } from "./youtube.js";
+import { playThemeSong, stopThemeSong, pauseThemeSong, resumeThemeSong, hasVideoId } from "./youtube.js";
 
 const ROOM_KEY = "com.initiativebard/state";
 
@@ -7,9 +7,19 @@ let currentState = { currentIndex: 0, round: 1 };
 let allItems = [];
 let currentSongUrl = "";
 let songModalTargetId = null;
+let isMusicPaused = false;
+let isGM = false;
 
 function metaKey(EXT_ID) {
   return `${EXT_ID}/metadata`;
+}
+
+function getTokenName(item) {
+  // Prefer the label text the user typed under the token
+  const plain = item.text?.plainText?.trim();
+  if (plain) return plain;
+  // Fall back to the file name
+  return item.name;
 }
 
 function getInitiativeItems(items, META_KEY) {
@@ -54,6 +64,7 @@ async function highlightToken(item) {
 }
 
 function handleMusic(activeItem, META_KEY) {
+  if (isMusicPaused) return;
   const song = activeItem?.metadata[META_KEY]?.themeSong ?? "";
   if (song && hasVideoId(song)) {
     if (song !== currentSongUrl) {
@@ -69,6 +80,12 @@ function handleMusic(activeItem, META_KEY) {
 export async function renderTracker(EXT_ID) {
   const META_KEY = metaKey(EXT_ID);
 
+  // Check role once on load
+  try {
+    const role = await OBR.player.getRole();
+    isGM = role === "GM";
+  } catch (e) {}
+
   document.querySelector("#app").innerHTML = `
     <h1>🎵 Initiative Bard</h1>
     <div id="round-counter">Round 1</div>
@@ -79,6 +96,7 @@ export async function renderTracker(EXT_ID) {
       </div>
     </div>
     <button id="next-turn-btn" disabled>⚔️ Next Turn</button>
+    ${isGM ? `<button id="pause-music-btn">⏸ Pause Music</button>` : ""}
     <div id="song-modal-overlay">
       <div id="song-modal">
         <h2>🎵 Theme Song</h2>
@@ -117,10 +135,7 @@ export async function renderTracker(EXT_ID) {
 
   OBR.scene.onReadyChange(async (ready) => {
     if (ready) await setupSceneListeners();
-    else {
-      allItems = [];
-      renderList(EXT_ID, META_KEY);
-    }
+    else { allItems = []; renderList(EXT_ID, META_KEY); }
   });
 
   await setupSceneListeners();
@@ -138,10 +153,24 @@ export async function renderTracker(EXT_ID) {
     if (allItems.length === 0) return;
     currentState.currentIndex = (currentState.currentIndex + 1) % allItems.length;
     if (currentState.currentIndex === 0) currentState.round++;
+    isMusicPaused = false;
+    updatePauseButton();
     await saveState();
     renderList(EXT_ID, META_KEY);
     applyActiveEffects(META_KEY);
   });
+
+  if (isGM) {
+    document.getElementById("pause-music-btn").addEventListener("click", () => {
+      isMusicPaused = !isMusicPaused;
+      if (isMusicPaused) {
+        pauseThemeSong();
+      } else {
+        resumeThemeSong();
+      }
+      updatePauseButton();
+    });
+  }
 
   document.getElementById("song-cancel-btn").addEventListener("click", closeSongModal);
   document.getElementById("song-modal-overlay").addEventListener("click", (e) => {
@@ -156,6 +185,12 @@ export async function renderTracker(EXT_ID) {
     await saveSong("", META_KEY);
     closeSongModal();
   });
+}
+
+function updatePauseButton() {
+  const btn = document.getElementById("pause-music-btn");
+  if (!btn) return;
+  btn.textContent = isMusicPaused ? "▶ Resume Music" : "⏸ Pause Music";
 }
 
 function renderList(EXT_ID, META_KEY) {
@@ -182,13 +217,14 @@ function renderList(EXT_ID, META_KEY) {
     const itemMeta = item.metadata[META_KEY] || {};
     const initiative = itemMeta.initiative ?? 0;
     const hasSong = !!(itemMeta.themeSong && hasVideoId(itemMeta.themeSong));
+    const displayName = getTokenName(item);
 
     const row = document.createElement("div");
     row.className = `init-row${isActive ? " active" : ""}`;
     row.dataset.itemId = item.id;
     row.innerHTML = `
       <div class="turn-indicator"></div>
-      <span class="token-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+      <span class="token-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
       <input class="init-input" type="number" value="${Number(initiative)}" min="-99" max="99" />
       <button class="song-btn ${hasSong ? "has-song" : ""}" data-id="${item.id}">
         ${hasSong ? "🎵" : "🎶"}
@@ -222,7 +258,8 @@ async function applyActiveEffects(META_KEY) {
   const song = activeItem?.metadata[META_KEY]?.themeSong ?? "";
   if (song && hasVideoId(song)) {
     nowPlaying.classList.remove("hidden");
-    nowPlaying.textContent = `♪ ${activeItem.name}'s theme`;
+    const name = getTokenName(activeItem);
+    nowPlaying.textContent = `♪ ${name}'s theme`;
   } else {
     nowPlaying.classList.add("hidden");
   }
