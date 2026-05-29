@@ -1,5 +1,5 @@
 import OBR from "@owlbear-rodeo/sdk";
-import { playThemeSong, stopThemeSong, pauseThemeSong, resumeThemeSong, hasVideoId } from "./youtube.js";
+import { playThemeSong, stopThemeSong, pauseThemeSong, resumeThemeSong, hasVideoId, setVolume } from "./youtube.js";
 
 const ROOM_KEY = "com.initiativebard/state";
 
@@ -175,7 +175,9 @@ export async function renderTracker(EXT_ID) {
       updatePauseButton();
     });
   }
-
+document.getElementById("volume-slider").addEventListener("input", (e) => {
+  setVolume(parseInt(e.target.value, 10));
+});
   document.getElementById("song-cancel-btn").addEventListener("click", closeSongModal);
   document.getElementById("song-modal-overlay").addEventListener("click", (e) => {
     if (e.target === document.getElementById("song-modal-overlay")) closeSongModal();
