@@ -288,3 +288,22 @@ h1 {
   text-align: center;
   letter-spacing: 0.5px;
 }
+#volume-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+}
+
+#volume-control label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#volume-slider {
+  flex: 1;
+  accent-color: var(--accent2);
+  cursor: pointer;
+}
