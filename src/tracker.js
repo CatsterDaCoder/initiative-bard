@@ -97,6 +97,10 @@ export async function renderTracker(EXT_ID) {
     </div>
     <button id="next-turn-btn" disabled>⚔️ Next Turn</button>
     ${isGM ? `<button id="pause-music-btn">⏸ Pause Music</button>` : ""}
+<div id="volume-control">
+  <label>🔊</label>
+  <input id="volume-slider" type="range" min="0" max="100" value="70" />
+</div>
     <div id="song-modal-overlay">
       <div id="song-modal">
         <h2>🎵 Theme Song</h2>
