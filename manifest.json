@@ -1,0 +1,12 @@
+{
+  "name": "Initiative Bard",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "action": {
+    "title": "Initiative Bard",
+    "icon": "/initiative-bard/icon.svg",
+    "popover": "/initiative-bard/",
+    "height": 500,
+    "width": 300
+  }
+}
