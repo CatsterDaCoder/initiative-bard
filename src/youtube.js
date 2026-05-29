@@ -98,3 +98,8 @@ export function resumeThemeSong() {
 export function hasVideoId(url) {
   return !!extractVideoId(url);
 }
+export function setVolume(vol) {
+  if (player && playerReady) {
+    try { player.setVolume(vol); } catch (_) {}
+  }
+}
